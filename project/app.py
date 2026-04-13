@@ -1,13 +1,16 @@
 import cv2
 import numpy as np
+import os
+from pathlib import Path
 from flask import Flask, render_template, Response, jsonify
 from ultralytics import YOLO
 
 app = Flask(__name__)
 
 # --- Configuration ---
-MODEL_PATH = "/Users/sanket/Documents/VSCODE/project/best.pt"
-IP_URL = "http://192.168.1.10:8080/video"
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = os.getenv("MODEL_PATH", str(BASE_DIR / "best.pt"))
+IP_URL = os.getenv("IP_URL", "0")
 BOARD_SIZE = 800  # The pixel size of our warped board
 
 model = YOLO(MODEL_PATH)
@@ -26,9 +29,17 @@ PIECE_MAP = {
 def detect_board(image):
     """Finds 7x7 internal corners and returns the 4 outer corners."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    ret, corners = cv2.findChessboardCorners(gray, (7, 7), None)
+    pattern_size = (7, 7)
+
+    # More robust corner detector (OpenCV 4.5+)
+    ret, corners = cv2.findChessboardCornersSB(gray, pattern_size, None)
+    if not ret:
+        flags = cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
+        ret, corners = cv2.findChessboardCorners(gray, pattern_size, flags)
+
     if not ret:
         return None
+
     corners = corners.reshape(-1, 2)
     # 7x7 grid: 0 is top-left, 6 is top-right, 42 is bottom-left, 48 is bottom-right
     tl, tr, bl, br = corners[0], corners[6], corners[-7], corners[-1]
@@ -49,8 +60,9 @@ def get_chess_coords(x, y):
     Math: $col = \lfloor \frac{x}{100} \rfloor$, $row = 8 - \lfloor \frac{y}{100} \rfloor$
     """
     columns = "abcdefgh"
-    col_idx = int(x // 100)
-    row_idx = 8 - int(y // 100)
+    cell_size = BOARD_SIZE / 8
+    col_idx = int(x // cell_size)
+    row_idx = 8 - int(y // cell_size)
     # Boundary checks
     col_idx = max(0, min(7, col_idx))
     row_idx = max(1, min(8, row_idx))
@@ -59,7 +71,8 @@ def get_chess_coords(x, y):
 # --- Flask Streaming Logic ---
 
 def gen_frames():
-    cap = cv2.VideoCapture(IP_URL)
+    stream_source = int(IP_URL) if IP_URL.isdigit() else IP_URL
+    cap = cv2.VideoCapture(stream_source)
     while True:
         success, frame = cap.read()
         if not success:
@@ -67,9 +80,12 @@ def gen_frames():
 
         # 1. Perspective Correction
         board_pts = detect_board(frame)
-        current_state = {}
+        current_state = app.config.get('LATEST_STATE', {}).copy()
 
         if board_pts is not None:
+            current_state = {}
+            # Draw board polygon on the original frame for easier debugging
+            cv2.polylines(frame, [board_pts.astype(np.int32)], True, (0, 255, 255), 2)
             warped = warp_board(frame, board_pts)
             
             # 2. Detect pieces on the warped board
