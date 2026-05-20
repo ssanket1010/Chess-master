@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Chess Vision — Manual Calibration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg:        #09090c;
+  --surf:      #111318;
+  --surf2:     #191c24;
+  --border:    #252833;
+  --accent:    #f0c040;
+  --accentdim: #7a6020;
+  --green:     #00e5a0;
+  --red:       #ff5e5e;
+  --text:      #dde1ec;
+  --muted:     #555b70;
+  --light-sq:  #f0d9b5;
+  --dark-sq:   #b58863;
+  --hi:        rgba(240,192,64,0.28);
+  --fh:        'Bebas Neue', sans-serif;
+  --fm:        'IBM Plex Mono', monospace;
+  --fb:        'IBM Plex Sans', sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--fb);min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden}
+
+/* ── HEADER ── */
+header{display:flex;align-items:center;gap:16px;padding:14px 28px;border-bottom:1px solid var(--border);background:var(--surf);flex-shrink:0}
+header h1{font-family:var(--fh);font-size:1.9rem;letter-spacing:.08em;color:var(--accent)}
+header p{font-size:.72rem;color:var(--muted);font-family:var(--fm);margin-top:1px}
+.pill{margin-left:auto;display:flex;align-items:center;gap:8px;font-family:var(--fm);font-size:.7rem;color:var(--muted);background:var(--surf2);border:1px solid var(--border);border-radius:20px;padding:5px 13px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--red);transition:background .4s,box-shadow .4s}
+.dot.live{background:var(--green);box-shadow:0 0 6px var(--green)}
+
+/* ── LAYOUT ── */
+main{flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto auto;gap:20px;padding:22px 28px;max-width:1440px;margin:0 auto;width:100%}
+@media(max-width:860px){main{grid-template-columns:1fr}}
+
+/* ── PANEL ── */
+.panel{background:var(--surf);border:1px solid var(--border);border-radius:6px;display:flex;flex-direction:column;overflow:hidden}
+.ph{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surf2);flex-shrink:0}
+.pt{font-family:var(--fm);font-size:.66rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.pb{flex:1;position:relative;display:flex;align-items:center;justify-content:center;min-height:0}
+.badge{margin-left:auto;background:var(--surf);border:1px solid var(--border);border-radius:4px;padding:2px 8px;font-family:var(--fm);font-size:.62rem;color:var(--accent)}
+
+/* ── CAMERA CANVAS ── */
+.cam-wrap{position:relative;width:100%;display:flex;align-items:center;justify-content:center;background:#000;min-height:320px}
+#cam-canvas{
+  display:block;
+  width:100%;
+  height:auto;
+  cursor:crosshair;
+  max-height:500px;
+  /* remove object-fit: contain; */
+}
+#cam-img{display:none} /* hidden, feeds canvas */
+
+.cam-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted);font-family:var(--fm);font-size:.8rem;pointer-events:none}
+.cam-placeholder .big{font-size:2.8rem}
+
+/* ── CALIBRATION TOOLBAR ── */
+.toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid var(--border);background:var(--surf2);flex-wrap:wrap}
+.toolbar label{font-family:var(--fm);font-size:.68rem;color:var(--muted);margin-right:4px}
+.corner-indicators{display:flex;gap:6px;margin-right:4px}
+.ci{width:26px;height:26px;border-radius:4px;border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:var(--fm);font-size:.6rem;color:var(--muted);background:var(--surf);transition:all .2s}
+.ci.set{border-color:var(--accent);color:var(--accent);background:rgba(240,192,64,.12)}
+.ci.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accentdim);color:var(--accent)}
+.btn{font-family:var(--fm);font-size:.68rem;padding:5px 12px;border-radius:4px;border:1px solid var(--border);background:var(--surf);color:var(--text);cursor:pointer;transition:all .15s;white-space:nowrap}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.primary{border-color:var(--accent);color:var(--accent);background:rgba(240,192,64,.08)}
+.btn.primary:hover{background:rgba(240,192,64,.18)}
+.btn.danger{border-color:var(--red);color:var(--red)}
+.btn.danger:hover{background:rgba(255,94,94,.1)}
+.btn:disabled{opacity:.35;pointer-events:none}
+.instr{font-family:var(--fm);font-size:.63rem;color:var(--muted);flex:1;min-width:140px}
+
+/* ── VIRTUAL BOARD ── */
+.board-outer{display:flex;align-items:center;justify-content:center;padding:16px}
+#vboard{display:grid;grid-template-columns:18px repeat(8,1fr);grid-template-rows:repeat(8,1fr) 18px;width:min(460px,85vw);height:min(460px,85vw)}
+.rl,.cl{display:flex;align-items:center;justify-content:center;font-family:var(--fm);font-size:.58rem;color:var(--muted);background:var(--surf2)}
+.sq{position:relative;display:flex;align-items:center;justify-content:center;transition:background .2s}
+.sq.light{background:var(--light-sq)}
+.sq.dark {background:var(--dark-sq)}
+.sq.hi   {background:var(--hi)!important}
+.piece{font-size:clamp(13px,3.2vw,26px);line-height:1;user-select:none;filter:drop-shadow(0 1px 3px rgba(0,0,0,.7));animation:pop .18s ease-out}
+@keyframes pop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+.sq[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:#000;color:var(--accent);font-family:var(--fm);font-size:.58rem;padding:3px 7px;border-radius:3px;white-space:nowrap;z-index:10;pointer-events:none}
+
+/* ── LOG PANEL ── */
+.log-panel{grid-column:1/-1}
+#plog{display:flex;flex-wrap:wrap;gap:7px;padding:12px 16px;min-height:64px;align-content:flex-start}
+.ptag{display:flex;align-items:center;gap:5px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;padding:4px 9px;font-family:var(--fm);font-size:.65rem;color:var(--text);animation:si .15s ease-out}
+@keyframes si{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+.ptag .s{font-size:.9rem}
+.ptag .sq{color:var(--muted);background:none;border:none;font-size:.65rem}
+.ptag .cf{color:var(--green);font-size:.58rem}
+.empty{color:var(--muted);font-family:var(--fm);font-size:.73rem;padding:6px 2px}
+
+/* warped preview overlay badge */
+.warped-note{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.7);border:1px solid var(--accent);border-radius:4px;padding:3px 8px;font-family:var(--fm);font-size:.6rem;color:var(--accent);pointer-events:none}
+</style>
+</head>
+<body>
+
+<header>
+  <div style="font-size:26px;line-height:1">♟</div>
+  <div>
+    <h1>Chess Vision</h1>
+    <p>Manual calibration · YOLOv8 detection</p>
+  </div>
+  <div class="pill">
+    <div class="dot" id="sdot"></div>
+    <span id="stxt">Connecting…</span>
+  </div>
+</header>
+
+<main>
+
+  <!-- LEFT: Camera + corner picker -->
+  <div class="panel" style="grid-row:span 1">
+    <div class="ph">
+      <span class="pt">📷 Camera Feed</span>
+      <span class="badge" id="mode-badge">SELECT MODE</span>
+    </div>
+    <div class="pb" style="padding:0">
+      <div class="cam-wrap">
+        <!-- hidden img drives the canvas -->
+        <img id="cam-img" src="" alt="" crossorigin="anonymous"/>
+        <canvas id="cam-canvas"></canvas>
+        <div class="cam-placeholder" id="cam-ph">
+          <div class="big">📡</div>
+          <div>Waiting for camera stream…</div>
+        </div>
+      </div>
+    </div>
+    <div class="toolbar">
+      <label>Corners:</label>
+      <div class="corner-indicators">
+        <div class="ci active" id="ci-0" title="Top-Left">TL</div>
+        <div class="ci"        id="ci-1" title="Top-Right">TR</div>
+        <div class="ci"        id="ci-2" title="Bottom-Right">BR</div>
+        <div class="ci"        id="ci-3" title="Bottom-Left">BL</div>
+      </div>
+      <button class="btn primary" id="btn-apply" disabled onclick="applyCorners()">Apply</button>
+      <button class="btn danger"  id="btn-reset" onclick="resetCorners()">Reset</button>
+      <span class="instr" id="instr-text">Click TL corner on the video above</span>
+    </div>
+  </div>
+
+  <!-- RIGHT: Warped + annotated -->
+  <div class="panel">
+    <div class="ph">
+      <span class="pt">🔲 Warped Board</span>
+      <span class="badge" id="pc-badge">0 pieces</span>
+    </div>
+    <div class="pb" style="padding:0;background:#000">
+      <img id="warped-img" src="" alt="warped" style="width:100%;height:auto;max-height:500px;object-fit:contain;display:none"/>
+      <div class="cam-placeholder" id="warped-ph">
+        <div class="big">⬜</div>
+        <div style="text-align:center;max-width:200px">Select & apply 4 corners on the camera feed first</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT BOTTOM: Virtual board -->
+  <div class="panel">
+    <div class="ph">
+      <span class="pt">♟ Virtual Board</span>
+      <span class="badge" id="upd-badge">--</span>
+    </div>
+    <div class="pb">
+      <div class="board-outer">
+        <div id="vboard"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM: Piece log -->
+  <div class="panel log-panel">
+    <div class="ph">
+      <span class="pt">🗂 Detected Pieces</span>
+    </div>
+    <div id="plog"><div class="empty">No pieces detected yet…</div></div>
+  </div>
+
+</main>
+
+<script>
+// ── CONFIG ───────────────────────────────────────────────────────────────────
+const SERVER   = "http://127.0.0.1:5000";
+const POLL_MS  = 300;
+
+// ── PIECE SYMBOL MAP ─────────────────────────────────────────────────────────
+const SYM = {
+  "white-king":"♔","white-queen":"♕","white-rook":"♖","white-bishop":"♗","white-knight":"♘","white-pawn":"♙",
+  "black-king":"♚","black-queen":"♛","black-rook":"♜","black-bishop":"♝","black-knight":"♞","black-pawn":"♟",
+  wK:"♔",wQ:"♕",wR:"♖",wB:"♗",wN:"♘",wP:"♙",
+  bK:"♚",bQ:"♛",bR:"♜",bB:"♝",bN:"♞",bP:"♟",
+  K:"♔",Q:"♕",R:"♖",B:"♗",N:"♘",P:"♙",
+  k:"♚",q:"♛",r:"♜",b:"♝",n:"♞",p:"♟",
+};
+const sym = l => SYM[l] ?? SYM[l?.toLowerCase()] ?? "●";
+const FILES = ["a","b","c","d","e","f","g","h"];
+const RANKS = ["8","7","6","5","4","3","2","1"];
+
+// ── CORNER STATE ─────────────────────────────────────────────────────────────
+const LABELS = ["TL","TR","BR","BL"];
+let corners   = [null,null,null,null];  // {x,y} in canvas-display coords
+let realCorners = [null,null,null,null]; // {x,y} in real image pixels
+let nextCorner = 0;
+let applied    = false;
+
+// ── CANVAS CORNER PICKER ──────────────────────────────────────────────────────
+const camImg    = document.getElementById("cam-img");
+const camCanvas = document.getElementById("cam-canvas");
+const ctx       = camCanvas.getContext("2d");
+const camPh     = document.getElementById("cam-ph");
+let imgNatW = 1, imgNatH = 1;  // natural frame dimensions
+
+camImg.onload = () => {
+  camPh.style.display = "none";
+  document.getElementById("sdot").classList.add("live");
+  document.getElementById("stxt").textContent = "LIVE";
+
+  imgNatW = camImg.naturalWidth;
+  imgNatH = camImg.naturalHeight;
+  camCanvas.width  = imgNatW;
+  camCanvas.height = imgNatH;
+  drawCanvas();
+};
+
+camImg.onerror = () => {
+  document.getElementById("sdot").classList.remove("live");
+  document.getElementById("stxt").textContent = "Reconnecting…";
+  setTimeout(startRaw, 2000);
+};
+
+function startRaw() {
+  camImg.src = SERVER + "/raw_feed?" + Date.now();
+}
+startRaw();
+
+// Draw canvas: current frame + corners overlay
+function drawCanvas() {
+  if (!camImg.complete || !camImg.naturalWidth) return;
+  ctx.drawImage(camImg, 0, 0);
+
+  // Draw polygon if we have points
+  const pts = corners.filter(Boolean);
+  if (pts.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    if (pts.length === 4) ctx.closePath();
+    ctx.strokeStyle = "rgba(240,192,64,0.9)";
+    ctx.lineWidth   = 2;
+    ctx.stroke();
+    if (pts.length === 4) {
+      ctx.fillStyle = "rgba(240,192,64,0.06)";
+      ctx.fill();
+    }
+  }
+
+  // Draw corner dots
+  corners.forEach((p, i) => {
+    if (!p) return;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 7, 0, Math.PI*2);
+    ctx.fillStyle   = i === nextCorner && !applied ? "rgba(240,192,64,1)" : "rgba(240,192,64,0.8)";
+    ctx.fill();
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth   = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = "#000";
+    ctx.font      = "bold 10px 'IBM Plex Mono', monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(LABELS[i], p.x, p.y);
+  });
+}
+
+// Redraw at ~30fps by polling img frames
+setInterval(drawCanvas, 40);
+
+// Canvas click → place corner
+camCanvas.addEventListener("click", e => {
+  if (applied) return;   // locked after apply; reset to re-pick
+
+  const rect = camCanvas.getBoundingClientRect();
+  const scaleX = camCanvas.width  / rect.width;
+  const scaleY = camCanvas.height / rect.height;
+  const cx = (e.clientX - rect.left) * scaleX;
+  const cy = (e.clientY - rect.top)  * scaleY;
+
+  corners[nextCorner]     = {x: cx, y: cy};
+  realCorners[nextCorner] = {x: cx, y: cy};  // canvas pixels = image pixels
+
+  updateCornerUI();
+  nextCorner = Math.min(nextCorner + 1, 4);
+  drawCanvas();
+});
+
+// Right-click → undo last corner
+camCanvas.addEventListener("contextmenu", e => {
+  e.preventDefault();
+  if (applied) return;
+  const prev = nextCorner - 1;
+  if (prev < 0) return;
+  corners[prev]     = null;
+  realCorners[prev] = null;
+  nextCorner = prev;
+  updateCornerUI();
+  drawCanvas();
+});
+
+function updateCornerUI() {
+  const allSet = corners.every(Boolean);
+  document.getElementById("btn-apply").disabled = !allSet || applied;
+  LABELS.forEach((_, i) => {
+    const el = document.getElementById("ci-"+i);
+    el.classList.toggle("set",    !!corners[i]);
+    el.classList.toggle("active", i === nextCorner && !applied);
+  });
+  const instrMap = [
+    "Click TL corner on the video above",
+    "Click TR corner",
+    "Click BR corner",
+    "Click BL corner — then Apply",
+    allSet ? (applied ? "Board locked. Reset to re-calibrate." : "All corners set! Click Apply.") : "",
+  ];
+  document.getElementById("instr-text").textContent = instrMap[Math.min(nextCorner,4)];
+}
+
+async function applyCorners() {
+  const pts = realCorners.map(p => [Math.round(p.x), Math.round(p.y)]);
+  const res = await fetch(SERVER + "/set_corners", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({corners: pts})
+  });
+  if (res.ok) {
+    applied = true;
+    camCanvas.style.cursor = "default";
+    document.getElementById("mode-badge").textContent = "CALIBRATED";
+    document.getElementById("btn-apply").disabled = true;
+    document.getElementById("instr-text").textContent = "Board locked. Reset to re-pick corners.";
+    startWarped();
+  }
+}
+
+async function resetCorners() {
+  corners     = [null,null,null,null];
+  realCorners = [null,null,null,null];
+  nextCorner  = 0;
+  applied     = false;
+  camCanvas.style.cursor = "crosshair";
+  document.getElementById("mode-badge").textContent  = "SELECT MODE";
+  document.getElementById("warped-img").style.display = "none";
+  document.getElementById("warped-ph").style.display  = "";
+  updateCornerUI();
+  drawCanvas();
+  await fetch(SERVER + "/clear_corners", {method:"POST"});
+}
+
+// ── WARPED FEED ───────────────────────────────────────────────────────────────
+const warpedImg = document.getElementById("warped-img");
+const warpedPh  = document.getElementById("warped-ph");
+
+function startWarped() {
+  warpedImg.src = SERVER + "/warped_feed?" + Date.now();
+  warpedImg.onload = () => {
+    warpedPh.style.display  = "none";
+    warpedImg.style.display = "block";
+  };
+}
+
+// ── VIRTUAL BOARD ─────────────────────────────────────────────────────────────
+const vboard  = document.getElementById("vboard");
+const squares = {};
+
+function buildBoard() {
+  vboard.innerHTML = "";
+  for (let row = 0; row < 8; row++) {
+    const rl = document.createElement("div");
+    rl.className = "rl"; rl.textContent = RANKS[row];
+    vboard.appendChild(rl);
+    for (let col = 0; col < 8; col++) {
+      const sq = document.createElement("div");
+      sq.className = "sq " + ((row+col)%2===0 ? "light":"dark");
+      vboard.appendChild(sq);
+      squares[`${col}-${row}`] = sq;
+    }
+  }
+  const corner = document.createElement("div");
+  corner.className = "rl"; vboard.appendChild(corner);
+  for (let col = 0; col < 8; col++) {
+    const cl = document.createElement("div");
+    cl.className = "cl"; cl.textContent = FILES[col];
+    vboard.appendChild(cl);
+  }
+}
+buildBoard();
+
+function renderBoard(pieces) {
+  Object.values(squares).forEach(sq => {
+    sq.innerHTML = "";
+    sq.classList.remove("hi");
+    delete sq.dataset.tip;
+  });
+  pieces.forEach(p => {
+    const sq = squares[`${p.col}-${p.row}`];
+    if (!sq) return;
+    const sp = document.createElement("span");
+    sp.className = "piece";
+    sp.textContent = sym(p.label);
+    sq.appendChild(sp);
+    sq.classList.add("hi");
+    sq.dataset.tip = `${p.label} · ${FILES[p.col]}${RANKS[p.row]} · ${(p.confidence*100).toFixed(0)}%`;
+  });
+}
+
+function renderLog(pieces) {
+  const log = document.getElementById("plog");
+  if (!pieces.length) { log.innerHTML = `<div class="empty">No pieces detected…</div>`; return; }
+  log.innerHTML = pieces.map(p => {
+    const sqL = FILES[p.col] + RANKS[p.row];
+    return `<div class="ptag">
+      <span class="s">${sym(p.label)}</span>
+      <span>${p.label}</span>
+      <span class="sq">${sqL}</span>
+      <span class="cf">${(p.confidence*100).toFixed(0)}%</span>
+    </div>`;
+  }).join("");
+}
+
+// ── POLL PIECES ───────────────────────────────────────────────────────────────
+async function poll() {
+  try {
+    const res  = await fetch(SERVER + "/pieces", {cache:"no-store"});
+    const data = await res.json();
+    renderBoard(data);
+    renderLog(data);
+    document.getElementById("pc-badge").textContent = data.length + " piece" + (data.length!==1?"s":"");
+    document.getElementById("upd-badge").textContent = new Date().toLocaleTimeString();
+  } catch(_) {}
+}
+setInterval(poll, POLL_MS);
+updateCornerUI();
+</script>
+</body>
+</html>
