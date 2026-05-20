@@ -34,4 +34,5 @@ An intelligent, computer-vision-driven chess assistant that detects physical che
 ├── python test_ui.py    # Static image testing utility server
 └── templates/
     └── index.html       # Web UI dashboard for calibration and tracking
+```
 [Chess Vision — Manual Calibration.pdf](https://github.com/user-attachments/files/28056703/Chess.Vision.Manual.Calibration.pdf)
